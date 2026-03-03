@@ -23,6 +23,7 @@ public:
 
 private:
   void triggerPing();
+  void waitQuietIfNeeded();
 
   int _trig;
   const int* _echoPins;
@@ -30,6 +31,7 @@ private:
 
   unsigned long _timeoutUs = 20000UL; // good for jars
   unsigned long _quietMs   = 60UL;    // reduce crosstalk
+  unsigned long _lastPingMs = 0UL;
 
   static constexpr float SPEED_CM_PER_US = 0.0343f; // speed of sound
 };

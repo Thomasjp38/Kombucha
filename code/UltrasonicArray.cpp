@@ -17,12 +17,22 @@ void UltrasonicArray::setTiming(unsigned long timeoutUs, unsigned long quietMs) 
   _quietMs = quietMs;
 }
 
+void UltrasonicArray::waitQuietIfNeeded() {
+  // Keep shared-trigger sensors from hearing a previous ping.
+  unsigned long now = millis();
+  unsigned long elapsed = now - _lastPingMs;
+  if (elapsed < _quietMs) {
+    delay(_quietMs - elapsed);
+  }
+}
+
 void UltrasonicArray::triggerPing() {
   digitalWrite(_trig, LOW);
   delayMicroseconds(2);
   digitalWrite(_trig, HIGH);
   delayMicroseconds(10);
   digitalWrite(_trig, LOW);
+  _lastPingMs = millis();
 }
 
 USReading UltrasonicArray::readOne(int index) {
@@ -30,7 +40,7 @@ USReading UltrasonicArray::readOne(int index) {
   if (index < 0 || index >= _count) return r;
 
   // Let previous echoes die down (helps reduce cross-talk)
-  delay(_quietMs);
+  waitQuietIfNeeded();
 
   // Fire all sensors (shared trig), then measure only selected echo pin
   triggerPing();
