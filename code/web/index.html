@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Kombucha ESP32 Dashboard</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #0f172a; color: #e2e8f0; margin: 0; }
+    header { padding: 14px 18px; background: #1e293b; }
+    h1 { margin: 0; font-size: 20px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(260px,1fr)); gap: 12px; padding: 12px; }
+    .card { background: #1e293b; border-radius: 8px; padding: 12px; }
+    .row { display: flex; justify-content: space-between; margin: 6px 0; }
+    button, input { padding: 8px; border-radius: 6px; border: 1px solid #334155; background: #0b1220; color: #e2e8f0; }
+    button { cursor: pointer; }
+    .log { max-height: 220px; overflow-y: auto; font-family: monospace; font-size: 12px; background: #0b1220; padding: 8px; border-radius: 6px; }
+    canvas { width: 100%; height: 180px; background: #0b1220; border-radius: 6px; }
+    .muted { color: #94a3b8; font-size: 12px; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>Kombucha Low-Latency Dashboard</h1>
+  <div class="muted">Live control locally on ESP32 + long-term history via ThingSpeak</div>
+</header>
+
+<section class="grid">
+  <div class="card">
+    <h3>Live Sensor Values</h3>
+    <div class="row"><span>Temp (C)</span><span id="temp">--</span></div>
+    <div class="row"><span>Level Jar 0 (cm)</span><span id="level0">--</span></div>
+    <div class="row"><span>Level Jar 1 (cm)</span><span id="level1">--</span></div>
+    <div class="row"><span>pH (approx)</span><span id="ph">--</span></div>
+    <div class="row"><span>Hue</span><span id="hue">--</span></div>
+  </div>
+
+  <div class="card">
+    <h3>Actuator Control</h3>
+    <div class="row"><span>Heater</span><button onclick="toggleHeater()" id="heaterBtn">Toggle</button></div>
+    <div class="row"><span>Oxygen</span><button onclick="toggleOxygen()" id="oxygenBtn">Toggle</button></div>
+    <div class="row"><span>Pump A Duty</span><input type="number" id="pumpA" min="0" max="255" value="0" /></div>
+    <div class="row"><span>Pump B Duty</span><input type="number" id="pumpB" min="0" max="255" value="0" /></div>
+    <button onclick="setPumps()">Set Pump Duty</button>
+  </div>
+
+  <div class="card">
+    <h3>Operating Parameters</h3>
+    <div class="row"><span>Target Temp (C)</span><input type="number" id="targetTemp" step="0.1" value="25.0" /></div>
+    <div class="row"><span>Temp Deadband (C)</span><input type="number" id="deadband" step="0.1" value="0.5" /></div>
+    <div class="row"><span>Min Safe Level (cm)</span><input type="number" id="minLevel" step="0.1" value="4.0" /></div>
+    <button onclick="saveParams()">Save Parameters</button>
+  </div>
+
+  <div class="card">
+    <h3>History (Temp)</h3>
+    <canvas id="chart" width="600" height="180"></canvas>
+    <div class="muted">Short-term history shown here. Use ThingSpeak for long-term + Google Sheets export sync.</div>
+  </div>
+
+  <div class="card" style="grid-column: 1 / -1;">
+    <h3>Status Logs</h3>
+    <div id="logs" class="log"></div>
+  </div>
+</section>
+
+<script>
+  let cachedState = null;
+
+  function postForm(path, obj) {
+    const body = new URLSearchParams(obj);
+    return fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body
+    });
+  }
+
+  async function toggleHeater() {
+    if (!cachedState) return;
+    await postForm('/api/control', { heaterOn: cachedState.actuators.heaterOn ? 0 : 1 });
+    await refresh();
+  }
+
+  async function toggleOxygen() {
+    if (!cachedState) return;
+    await postForm('/api/control', { oxygenOn: cachedState.actuators.oxygenOn ? 0 : 1 });
+    await refresh();
+  }
+
+  async function setPumps() {
+    await postForm('/api/control', {
+      pumpDutyA: document.getElementById('pumpA').value,
+      pumpDutyB: document.getElementById('pumpB').value
+    });
+    await refresh();
+  }
+
+  async function saveParams() {
+    await postForm('/api/params', {
+      targetTempC: document.getElementById('targetTemp').value,
+      tempDeadbandC: document.getElementById('deadband').value,
+      minSafeLevelCm: document.getElementById('minLevel').value
+    });
+    await refresh();
+  }
+
+  function setText(id, value) {
+    document.getElementById(id).textContent = value;
+  }
+
+  function drawHistory(samples) {
+    const canvas = document.getElementById('chart');
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (!samples.length) return;
+
+    const valid = samples.map(s => s.temp).filter(v => !Number.isNaN(v));
+    if (!valid.length) return;
+
+    const min = Math.min(...valid);
+    const max = Math.max(...valid);
+    const range = (max - min) || 1;
+
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+
+    samples.forEach((s, i) => {
+      const x = (i / Math.max(1, samples.length - 1)) * (canvas.width - 20) + 10;
+      const y = canvas.height - ((s.temp - min) / range) * (canvas.height - 20) - 10;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+
+    ctx.stroke();
+  }
+
+  async function refresh() {
+    const [stateRes, historyRes, logsRes] = await Promise.all([
+      fetch('/api/state'),
+      fetch('/api/history'),
+      fetch('/api/logs')
+    ]);
+
+    const state = await stateRes.json();
+    const history = await historyRes.json();
+    const logs = await logsRes.json();
+    cachedState = state;
+
+    setText('temp', state.sensors.tempC.toFixed(2));
+    setText('level0', state.sensors.level0Cm.toFixed(2));
+    setText('level1', state.sensors.level1Cm.toFixed(2));
+    setText('ph', state.sensors.ph.toFixed(2));
+    setText('hue', state.sensors.hue.toFixed(1));
+
+    document.getElementById('heaterBtn').textContent = state.actuators.heaterOn ? 'Turn OFF' : 'Turn ON';
+    document.getElementById('oxygenBtn').textContent = state.actuators.oxygenOn ? 'Turn OFF' : 'Turn ON';
+
+    document.getElementById('pumpA').value = state.actuators.pumpDutyA;
+    document.getElementById('pumpB').value = state.actuators.pumpDutyB;
+
+    document.getElementById('targetTemp').value = state.params.targetTempC;
+    document.getElementById('deadband').value = state.params.tempDeadbandC;
+    document.getElementById('minLevel').value = state.params.minSafeLevelCm;
+
+    document.getElementById('logs').innerHTML = logs.map(l => `<div>${l}</div>`).join('');
+
+    drawHistory(history);
+  }
+
+  refresh();
+  setInterval(refresh, 1000);
+</script>
+</body>
+</html>
