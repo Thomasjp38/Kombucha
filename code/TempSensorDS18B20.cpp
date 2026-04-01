@@ -35,8 +35,15 @@ bool TempSensorDS18B20::isValid(float tempC) const {
     return (tempC != DEVICE_DISCONNECTED_C && tempC > -55.0f && tempC < 125.0f);
 }
 
-bool TempSensorDS18B20::isConnected() {
+bool TempSensorDS18B20::isConnected(bool forceRefresh) {
+    const unsigned long now = millis();
+    if (!forceRefresh && (now - _lastConnectCheckMs) < CONNECT_CHECK_INTERVAL_MS) {
+        return _cachedConnected;
+    }
+
     request();
-    float tC = readC();
-    return isValid(tC);
+    const float tC = readC();
+    _cachedConnected = isValid(tC);
+    _lastConnectCheckMs = now;
+    return _cachedConnected;
 }

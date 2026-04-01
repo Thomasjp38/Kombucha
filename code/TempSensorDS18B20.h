@@ -50,10 +50,10 @@ public:
     // Use this before making control decisions (heater/pump/fan)
     bool isValid(float tempC) const;
 
-    // isConnected()
-    // Quick check to see if the sensor appears connected and returning valid data
-    // Internally requests a reading and validates it
-    bool isConnected();
+    // isConnected(forceRefresh)
+    // Quick check to see if the sensor appears connected and returning valid data.
+    // Uses a short cache interval to avoid expensive repeated conversion requests.
+    bool isConnected(bool forceRefresh = false);
 
 private:
     // _pin
@@ -68,6 +68,10 @@ private:
     // DallasTemperature wrapper object that uses the OneWire bus
     // Provides easy temperature request/read functions
     DallasTemperature _sensors;
+
+    bool _cachedConnected = false;
+    unsigned long _lastConnectCheckMs = 0UL;
+    static constexpr unsigned long CONNECT_CHECK_INTERVAL_MS = 1000UL;
 };
 
 #endif
