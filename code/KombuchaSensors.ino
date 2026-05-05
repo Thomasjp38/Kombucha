@@ -28,19 +28,19 @@
 const bool DEBUG_MODE = false;
 
 // ---------------- Wi-Fi / MQTT config ----------------
-const char* WIFI_SSID = "IllinoisNet";
+const char* WIFI_SSID = "YourWIFI";
 const bool WIFI_USE_ENTERPRISE = true;
 
 // Replace these with your real values
-const char* WIFI_IDENTITY = "jtp7";
-const char* WIFI_USERNAME = "jtp7";
-const char* WIFI_USER_PASSWORD = "PrimordialEpsilon738!";
-const char* WIFI_PASSWORD = "PrimordialEpsilon738!";
+const char* WIFI_IDENTITY = "";
+const char* WIFI_USERNAME = "";
+const char* WIFI_USER_PASSWORD = "";
+const char* WIFI_PASSWORD = "";
 
-const char* MQTT_HOST = "xde1c38f.ala.us-east-1.emqxsl.com";
+const char* MQTT_HOST = "";
 const uint16_t MQTT_PORT = 8883;
-const char* MQTT_USERNAME = "Kombucha";
-const char* MQTT_PASSWORD = "BuchRules";
+const char* MQTT_USERNAME = "";
+const char* MQTT_PASSWORD = "";
 const char* DEVICE_ID = "kombucha-esp32-01";
 
 // ---------------- Pin map ----------------
