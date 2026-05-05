@@ -3,173 +3,1447 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Kombucha ESP32 Dashboard</title>
+  <title>Kombucha Progress Demo Dashboard (MQTT)</title>
   <style>
-    body { font-family: Arial, sans-serif; background: #0f172a; color: #e2e8f0; margin: 0; }
-    header { padding: 14px 18px; background: #1e293b; }
-    h1 { margin: 0; font-size: 20px; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(260px,1fr)); gap: 12px; padding: 12px; }
-    .card { background: #1e293b; border-radius: 8px; padding: 12px; }
-    .row { display: flex; justify-content: space-between; margin: 6px 0; }
-    button, input { padding: 8px; border-radius: 6px; border: 1px solid #334155; background: #0b1220; color: #e2e8f0; }
+    :root {
+      --bg:#0f172a;
+      --card:#1e293b;
+      --line:#334155;
+      --muted:#94a3b8;
+      --text:#e2e8f0;
+      --ok:#22c55e;
+      --bad:#ef4444;
+      --warn:#f59e0b;
+      --stale:#64748b;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, sans-serif; background: var(--bg); color: var(--text); }
+    header { padding: 14px 18px; background: var(--card); border-bottom: 1px solid var(--line); }
+    h1 { margin: 0 0 6px; font-size: 20px; }
+    h3 { margin-top: 0; }
+    .muted { color: var(--muted); font-size: 12px; }
+    .grid { display: grid; gap: 12px; padding: 12px; grid-template-columns: repeat(auto-fit,minmax(320px,1fr)); }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+    .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 8px 0; }
+    .status { font-weight: 700; }
+    .ok { color: var(--ok); }
+    .bad { color: var(--bad); }
+    .warn { color: var(--warn); }
+    .stale { color: var(--stale); }
+    label { font-size: 12px; color: var(--muted); display: block; margin-top: 8px; }
+    input, button { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: #0b1220; color: var(--text); }
     button { cursor: pointer; }
-    .log { max-height: 220px; overflow-y: auto; font-family: monospace; font-size: 12px; background: #0b1220; padding: 8px; border-radius: 6px; }
-    canvas { width: 100%; height: 180px; background: #0b1220; border-radius: 6px; }
-    .muted { color: #94a3b8; font-size: 12px; }
+    button:hover { background: #111a2f; }
+    .btns { display: grid; grid-template-columns: repeat(2,minmax(110px,1fr)); gap: 8px; margin-top: 8px; }
+    .log { max-height: 260px; overflow-y: auto; font-family: monospace; font-size: 12px; background: #0b1220; border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+    .mono { font-family: monospace; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:999px; border:1px solid var(--line); font-size:12px; }
+    .colorBox { width: 100%; height: 70px; border-radius: 8px; border: 1px solid var(--line); margin-top: 8px; background:#111827; }
+    .colorTimeline { width: 100%; min-height: 90px; border-radius: 8px; border: 1px solid var(--line); background:#111827; display:flex; align-items:stretch; overflow:hidden; }
+    .colorStripe { min-width: 4px; flex: 1 1 4px; border-right: 1px solid rgba(255,255,255,0.08); }
+    select { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: #0b1220; color: var(--text); }
+    .small { font-size: 11px; }
+    .tiny { font-size: 10px; }
+    .sectionNote { margin-top: 8px; }
+    .tabs { display:flex; gap:8px; padding:12px 12px 0; flex-wrap:wrap; }
+    .tab-btn { width:auto; padding:10px 14px; background:#111827; border:1px solid var(--line); border-radius:999px; }
+    .tab-btn.active { background:#1d4ed8; border-color:#2563eb; }
+    .tab-page { display:none; }
+    .tab-page.active { display:block; }
+    .history-grid { display:grid; gap:12px; grid-template-columns: 1fr; }
+    .history-chart-grid { display:grid; gap:12px; grid-template-columns: 1fr; }
+    .history-table-grid { display:grid; gap:12px; grid-template-columns: repeat(auto-fit,minmax(320px,1fr)); }
+    .chart-card { border:1px solid var(--line); border-radius:8px; padding:10px; background:#0b1220; overflow:auto; }
+    .table-card { border:1px solid var(--line); border-radius:8px; padding:10px; background:#0b1220; overflow:auto; }
+    .chart-wrap { height:320px; }
+    table { width:100%; border-collapse:collapse; font-size:12px; }
+    th { text-align:left; border-bottom:1px solid var(--line); padding:6px; }
+    @media (min-width: 1100px) {
+      .history-chart-grid { grid-template-columns: 1fr; }
+    }
   </style>
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-<header>
-  <h1>Kombucha Low-Latency Dashboard</h1>
-  <div class="muted">Live control locally on ESP32 + long-term history via ThingSpeak</div>
-</header>
+  <header>
+    <h1>Kombucha Progress Demo Dashboard</h1>
+    <div class="muted">Live MQTT dashboard for telemetry, status, alerts, manual controls, and configuration.</div>
+  </header>
 
-<section class="grid">
-  <div class="card">
-    <h3>Live Sensor Values</h3>
-    <div class="row"><span>Temp (C)</span><span id="temp">--</span></div>
-    <div class="row"><span>Level Jar 0 (cm)</span><span id="level0">--</span></div>
-    <div class="row"><span>Level Jar 1 (cm)</span><span id="level1">--</span></div>
-    <div class="row"><span>pH (approx)</span><span id="ph">--</span></div>
-    <div class="row"><span>Hue</span><span id="hue">--</span></div>
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="livePage">Live Dashboard</button>
+    <button class="tab-btn" data-tab="historyPage">History & Graphs</button>
   </div>
 
-  <div class="card">
-    <h3>Actuator Control</h3>
-    <div class="row"><span>Heater</span><button onclick="toggleHeater()" id="heaterBtn">Toggle</button></div>
-    <div class="row"><span>Oxygen</span><button onclick="toggleOxygen()" id="oxygenBtn">Toggle</button></div>
-    <div class="row"><span>Pump A Duty</span><input type="number" id="pumpA" min="0" max="255" value="0" /></div>
-    <div class="row"><span>Pump B Duty</span><input type="number" id="pumpB" min="0" max="255" value="0" /></div>
-    <button onclick="setPumps()">Set Pump Duty</button>
-  </div>
+  <section id="livePage" class="tab-page active grid">
+    <div class="card">
+      <h3>1) Connection</h3>
+      <div class="row"><span>Broker</span><span class="mono" id="previewHost">--</span></div>
+      <div class="row"><span>Status</span><span id="connStatus" class="status bad">Disconnected</span></div>
+      <div class="row"><span>Last Device Update</span><span id="lastUpdateText" class="status stale">No data yet</span></div>
 
-  <div class="card">
-    <h3>Operating Parameters</h3>
-    <div class="row"><span>Target Temp (C)</span><input type="number" id="targetTemp" step="0.1" value="25.0" /></div>
-    <div class="row"><span>Temp Deadband (C)</span><input type="number" id="deadband" step="0.1" value="0.5" /></div>
-    <div class="row"><span>Min Safe Level (cm)</span><input type="number" id="minLevel" step="0.1" value="4.0" /></div>
-    <button onclick="saveParams()">Save Parameters</button>
-  </div>
+      <label>WSS Host</label>
+      <input id="host" value="xde1c38f.ala.us-east-1.emqxsl.com" />
 
-  <div class="card">
-    <h3>History (Temp)</h3>
-    <canvas id="chart" width="600" height="180"></canvas>
-    <div class="muted">Short-term history shown here. Use ThingSpeak for long-term + Google Sheets export sync.</div>
-  </div>
+      <label>WSS Port</label>
+      <input id="port" type="number" value="8084" />
 
-  <div class="card" style="grid-column: 1 / -1;">
-    <h3>Status Logs</h3>
-    <div id="logs" class="log"></div>
-  </div>
-</section>
+      <label>MQTT Username</label>
+      <input id="username" placeholder="MQTT username" />
 
-<script>
-  let cachedState = null;
+      <label>MQTT Password</label>
+      <input id="password" type="password" placeholder="MQTT password" />
 
-  function postForm(path, obj) {
-    const body = new URLSearchParams(obj);
-    return fetch(path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body
+      <label>Device ID</label>
+      <input id="deviceId" value="kombucha-esp32-01" />
+
+      <div class="btns">
+        <button id="connectBtn">Connect</button>
+        <button id="disconnectBtn">Disconnect</button>
+      </div>
+
+      <div class="small muted sectionNote">Command topic: <span class="mono" id="commandTopicPreview">--</span></div>
+      <div class="small muted">Config topic: <span class="mono" id="configTopicPreview">--</span></div>
+    </div>
+
+    <div class="card">
+      <h3>2) Device Activity</h3>
+      <div class="row"><span>Current Event</span><span id="currentEventBadge" class="pill">--</span></div>
+      <div class="row"><span>Wi-Fi Connected</span><span id="wifiState">--</span></div>
+      <div class="row"><span>MQTT Connected</span><span id="mqttState">--</span></div>
+      <div class="row"><span>Last Command Event</span><span id="lastCommandEvent">--</span></div>
+      <div class="row"><span>Last Config Event</span><span id="lastConfigEvent">--</span></div>
+      <div class="small muted">This card shows the latest device-side activity from the <span class="mono">status</span> topic.</div>
+    </div>
+
+    <div class="card">
+      <h3>3) Live Sensor Data</h3>
+      <div class="row"><span>Temp (°C)</span><span id="temp">--</span></div>
+      <div class="row"><span>pH</span><span id="phValue">--</span></div>
+      <div class="row"><span>Main Jar Distance (cm)</span><span id="mainDistance">--</span></div>
+      <div class="row"><span>Waste Jar Distance (cm)</span><span id="wasteDistance">--</span></div>
+      <div class="row"><span>Feed Jar Distance (cm)</span><span id="feedDistance">--</span></div>
+      <div class="row"><span>RGB (R,G,B)</span><span id="rgbText">--</span></div>
+      <div class="row"><span>HSL (H,S,L)</span><span id="hslText">--</span></div>
+      <div id="colorSwatch" class="colorBox"></div>
+      <div class="small muted">Color square is rendered from corrected HSL telemetry.</div>
+    </div>
+
+    <div class="card">
+      <h3>4) Current States</h3>
+      <div class="row"><span>Feed Pump</span><span id="feedPumpState">--</span></div>
+      <div class="row"><span>Waste Pump</span><span id="wastePumpState">--</span></div>
+      <div class="row"><span>Oxygen Pump</span><span id="oxygenState">--</span></div>
+      <div class="row"><span>Heat Mat</span><span id="heaterState">--</span></div>
+      <div class="row"><span>Auto Level Control</span><span id="autoLevelState">--</span></div>
+      <div class="row"><span>Auto Heater Control</span><span id="autoHeaterState">--</span></div>
+      <div class="row"><span>Auto Oxygen Timer</span><span id="autoOxygenState">--</span></div>
+      <div class="row"><span>Device Event</span><span id="deviceEvent">--</span></div>
+    </div>
+
+    <div class="card">
+      <h3>5) Alerts & Lockouts</h3>
+      <div class="small muted">Live alerts show what the sensors report right now. Latched lockouts stay active until the condition is physically safe and you press the matching resolved button.</div>
+
+      <div style="margin-top:10px; border:1px solid var(--line); border-radius:8px; padding:10px; background:#182335;">
+        <div style="font-weight:700; margin-bottom:8px;">Live Alert Conditions</div>
+        <div class="row"><span>Feed Empty</span><span id="feedAlert" class="pill">--</span></div>
+        <div class="row"><span>Waste Overflow</span><span id="wasteAlert" class="pill">--</span></div>
+        <div class="row"><span>Main Jar Too Full</span><span id="mainTooFullAlert" class="pill">--</span></div>
+        <div class="row"><span>Temp Sensor Fault</span><span id="tempFault" class="pill">--</span></div>
+        <div class="row"><span>pH Sensor Fault</span><span id="phFault" class="pill">--</span></div>
+        <div class="row"><span>Color Sensor Fault</span><span id="colorFault" class="pill">--</span></div>
+      </div>
+
+      <div style="margin-top:12px; border:1px solid var(--line); border-radius:8px; padding:10px; background:#0b1220;">
+        <div style="font-weight:700; margin-bottom:8px;">Latched Safety States</div>
+        <div class="row"><span>Fluid System Lockout</span><span id="fluidLockout" class="pill">--</span></div>
+        <div class="row"><span>Heater Lockout</span><span id="heaterLockout" class="pill">--</span></div>
+        <div class="row"><span>Feed Empty Latched</span><span id="feedLatched" class="pill">--</span></div>
+        <div class="row"><span>Waste Overflow Latched</span><span id="wasteLatched" class="pill">--</span></div>
+        <div class="row"><span>Main Jar Too Full Latched</span><span id="mainTooFullLatched" class="pill">--</span></div>
+        <div class="row"><span>Temp Fault Latched</span><span id="tempLatched" class="pill">--</span></div>
+      </div>
+
+      <div class="btns" style="margin-top:10px;">
+        <button data-cmd='{"clearFluidLockout":true}'>Alert Resolved: Clear Fluid Lockout</button>
+        <button data-cmd='{"clearFeedEmptyAlert":true}'>Alert Resolved: Feed Refilled</button>
+        <button data-cmd='{"clearWasteOverflowAlert":true}'>Alert Resolved: Waste Emptied</button>
+        <button data-cmd='{"clearMainJarTooFullAlert":true}'>Alert Resolved: Main Jar Safe</button>
+        <button data-cmd='{"clearTempSensorFault":true}'>Alert Resolved: Temp Sensor OK</button>
+      </div>
+      <div class="small muted sectionNote">These buttons ask the ESP32 to check the current sensor readings. If the issue is still active, the firmware refuses to clear the latch. pH and color sensor faults are live warnings, so they clear automatically when readings return.</div>
+    </div>
+
+    <div class="card">
+      <h3>6) Manual Actuator Controls</h3>
+      <div class="btns">
+        <button data-cmd='{"feedPumpOn":true}'>Feed Pump ON</button>
+        <button data-cmd='{"feedPumpOn":false}'>Feed Pump OFF</button>
+        <button data-cmd='{"wastePumpOn":true}'>Waste Pump ON</button>
+        <button data-cmd='{"wastePumpOn":false}'>Waste Pump OFF</button>
+        <button data-cmd='{"oxygenOn":true}'>Oxygen ON</button>
+        <button data-cmd='{"oxygenOn":false}'>Oxygen OFF</button>
+        <button data-cmd='{"heaterOn":true}'>Heater ON</button>
+        <button data-cmd='{"heaterOn":false}'>Heater OFF</button>
+      </div>
+      <div class="btns" style="margin-top:8px;">
+        <button data-cmd='{"autoLevelControl":true}'>Enable Auto Level</button>
+        <button data-cmd='{"autoLevelControl":false}'>Disable Auto Level</button>
+        <button data-cmd='{"autoHeaterControl":true}'>Enable Auto Heater</button>
+        <button data-cmd='{"autoHeaterControl":false}'>Disable Auto Heater</button>
+      </div>
+      <div class="btns" style="margin-top:8px;">
+        <button id="enableOxygenTimerBtn">Enable Oxygen Timer</button>
+        <button id="disableOxygenTimerBtn">Disable Oxygen Timer</button>
+      </div>
+      <div class="small muted sectionNote">Set the oxygen run/wait timing in the Parameters / Thresholds card, then enable the timer here.</div>
+      <div class="row" style="margin-top:10px;">
+        <button data-cmd='{"allOff":true}'>Emergency ALL OFF</button>
+      </div>
+      <div class="small muted">If a latch/lockout is active and you try to force an actuator ON, this page blocks the command and shows a “resolve alert first” popup. The firmware still enforces the real hardware lockout.</div>
+    </div>
+
+    <div class="card">
+      <h3>7) Parameters / Thresholds</h3>
+      <div class="small muted">Top row shows the device's current live config. Bottom row is the editable config you can send.</div>
+
+      <div style="margin-top:10px; border:1px solid var(--line); border-radius:8px; padding:10px; background:#182335;">
+        <div style="font-weight:700; margin-bottom:8px;">Current Config from Device</div>
+        <div class="row"><span>Main Distance Target</span><span id="live_mainDistanceTargetCm">--</span></div>
+        <div class="row"><span>Main Distance Band</span><span id="live_mainDistanceBandCm">--</span></div>
+        <div class="row"><span>Main Too Full Distance</span><span id="live_mainTooFullDistanceCm">--</span></div>
+        <div class="row"><span>Feed Empty Distance</span><span id="live_feedEmptyDistanceCm">--</span></div>
+        <div class="row"><span>Waste Overflow Distance</span><span id="live_wasteOverflowDistanceCm">--</span></div>
+        <div class="row"><span>Temp Low</span><span id="live_tempLowC">--</span></div>
+        <div class="row"><span>Temp High</span><span id="live_tempHighC">--</span></div>
+        <div class="row"><span>Oxygen Run Time</span><span id="live_oxygenRunSeconds">--</span></div>
+        <div class="row"><span>Oxygen Wait Interval</span><span id="live_oxygenWaitSeconds">--</span></div>
+        <div class="row"><span>pH 4.01 Voltage</span><span id="live_phCalVoltageA">--</span></div>
+        <div class="row"><span>pH 9.16 Voltage</span><span id="live_phCalVoltageB">--</span></div>
+      </div>
+
+      <div style="margin-top:12px; border:1px solid var(--line); border-radius:8px; padding:10px; background:#0b1220;">
+        <div style="font-weight:700; margin-bottom:8px;">Editable Config to Send</div>
+
+        <label>Main Distance Target (cm)</label>
+        <input id="mainDistanceTargetCm" type="number" step="0.1" value="10" />
+
+        <label>Main Distance Band (cm)</label>
+        <input id="mainDistanceBandCm" type="number" step="0.1" value="1" />
+
+        <label>Main Too Full Distance (cm)</label>
+        <input id="mainTooFullDistanceCm" type="number" step="0.1" value="4" />
+
+        <label>Feed Empty Distance (cm)</label>
+        <input id="feedEmptyDistanceCm" type="number" step="0.1" value="15" />
+
+        <label>Waste Overflow Distance (cm)</label>
+        <input id="wasteOverflowDistanceCm" type="number" step="0.1" value="3" />
+
+        <label>Temp Low (°C)</label>
+        <input id="tempLowC" type="number" step="0.1" value="23" />
+
+        <label>Temp High (°C)</label>
+        <input id="tempHighC" type="number" step="0.1" value="27" />
+
+        <label>Oxygen Run Time (seconds)</label>
+        <input id="oxygenRunSeconds" type="number" step="1" value="60" />
+
+        <label>Oxygen Wait Interval (seconds)</label>
+        <input id="oxygenWaitSeconds" type="number" step="1" value="60" />
+
+        <label>pH 4.01 Voltage</label>
+        <input id="phCalVoltageA" type="number" step="0.001" placeholder="e.g. 3.181" />
+
+        <label>pH 9.16 Voltage</label>
+        <input id="phCalVoltageB" type="number" step="0.001" placeholder="e.g. 2.395" />
+
+        <div class="btns">
+          <button id="sendConfigBtn">Send Config</button>
+          <button id="pullFromTelemetryBtn">Copy Live Values Down</button>
+        </div>
+      </div>
+
+      <div class="small muted sectionNote">These values are sent on <span class="mono">config/set</span>, not <span class="mono">command/set</span>.</div>
+    </div>
+
+    </section>
+
+  <section id="historyPage" class="tab-page grid">
+    <div class="card" style="grid-column: 1 / -1;">
+      <h3>8) Supabase History</h3>
+      <div class="small muted">Use your Supabase project URL and anon key to load saved history from <span class="mono">telemetry_raw</span>.</div>
+
+      <label>Supabase URL</label>
+      <input id="supabaseUrl" placeholder="https://your-project-ref.supabase.co" />
+
+      <label>Supabase Anon Key</label>
+      <input id="supabaseAnonKey" type="password" placeholder="Supabase anon key" />
+
+      <div class="btns">
+        <button id="loadHistoryBtn">Load History</button>
+        <button id="clearHistoryBtn">Clear Tables</button>
+      </div>
+
+      <div style="margin-top:12px; border:1px solid var(--line); border-radius:8px; padding:10px; background:#0b1220;">
+        <div style="font-weight:700; margin-bottom:8px;">Batch Control</div>
+        <div class="row"><span>History Filter</span><span id="selectedBatchText" class="mono">All batches</span></div>
+
+        <label>New Batch ID / Name</label>
+        <input id="newBatchName" placeholder="e.g. batch-demo-1" />
+
+        <label>Batch Notes</label>
+        <input id="newBatchNotes" placeholder="optional notes" />
+
+        <div class="btns">
+          <button id="startNewBatchBtn">Start New Batch</button>
+          <button id="refreshBatchesBtn">Refresh Batch List</button>
+        </div>
+
+        <label>Previous Batch</label>
+        <select id="batchSelect">
+          <option value="">All batches</option>
+        </select>
+
+        <div class="btns">
+          <button id="setSelectedBatchBtn">Use Selected Batch</button>
+          <button id="endBatchBtn">End Current Batch</button>
+        </div>
+
+        <div class="small muted sectionNote">Starting a batch tells ingest.py to label future telemetry/events with that batch ID. Loading history filters the graphs/tables by the selected batch.</div>
+      </div>
+
+      <div class="small muted sectionNote">History is filtered by the Device ID shown in the Connection card and the selected batch above. Newest rows appear first in the tables. Graphs are shown in time order.</div>
+
+      <div class="history-grid" style="margin-top:12px;">
+        <div class="history-chart-grid">
+          <div class="chart-card">
+            <div style="font-weight:700; margin-bottom:8px;">Levels Graph</div>
+            <div class="chart-wrap"><canvas id="levelsChart"></canvas></div>
+          </div>
+
+          <div class="chart-card">
+            <div style="font-weight:700; margin-bottom:8px;">Temperature Graph</div>
+            <div class="chart-wrap"><canvas id="tempChart"></canvas></div>
+          </div>
+
+          <div class="chart-card">
+            <div style="font-weight:700; margin-bottom:8px;">pH Graph</div>
+            <div class="chart-wrap"><canvas id="phChart"></canvas></div>
+          </div>
+
+          <div class="chart-card">
+            <div style="font-weight:700; margin-bottom:8px;">Color Graph (RGB)</div>
+            <div class="chart-wrap"><canvas id="colorChart"></canvas></div>
+          </div>
+
+          <div class="chart-card">
+            <div style="font-weight:700; margin-bottom:8px;">Color Timeline Gradient</div>
+            <div id="colorGradient" class="colorTimeline"></div>
+            <div class="small muted sectionNote">Each vertical stripe is one history sample. Left is older, right is newer. The stripe uses stored HSL when available, otherwise RGB.</div>
+          </div>
+        </div>
+
+        <div class="history-table-grid">
+          <div class="table-card">
+            <div style="font-weight:700; margin-bottom:8px;">Levels History</div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Main</th>
+                  <th>Waste</th>
+                  <th>Feed</th>
+                </tr>
+              </thead>
+              <tbody id="levelsHistoryBody"></tbody>
+            </table>
+          </div>
+
+          <div class="table-card">
+            <div style="font-weight:700; margin-bottom:8px;">Temperature History</div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Temp (°C)</th>
+                  <th>Heater</th>
+                </tr>
+              </thead>
+              <tbody id="tempHistoryBody"></tbody>
+            </table>
+          </div>
+
+          <div class="table-card">
+            <div style="font-weight:700; margin-bottom:8px;">pH History</div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>pH</th>
+                </tr>
+              </thead>
+              <tbody id="phHistoryBody"></tbody>
+            </table>
+          </div>
+
+          <div class="table-card">
+            <div style="font-weight:700; margin-bottom:8px;">Color History</div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>RGB</th>
+                  <th>HSL</th>
+                </tr>
+              </thead>
+              <tbody id="colorHistoryBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="grid">
+    <div class="card" style="grid-column: 1 / -1;">
+      <h3>9) Event Log (status / alerts / ack / configAck)</h3>
+      <div class="tiny muted" style="margin-bottom:8px;">Newest messages appear at the top. Log is capped so the page does not get bloated.</div>
+      <div id="log" class="log"></div>
+    </div>
+  </section>
+
+  <script>
+    let client = null;
+    let supabaseClient = null;
+    let levelsChart = null;
+    let tempChart = null;
+    let phChart = null;
+    let colorChart = null;
+    let topics = {};
+    let latestTelemetry = null;
+    let latestStatus = null;
+    let lastLogLine = '';
+    let lastLogMs = 0;
+    let lastDeviceMessageAt = 0;
+    const MAX_LOG_LINES = 200;
+    const HISTORY_LIMIT = 25;
+    const STALE_MS = 15000;
+
+    const $ = (id) => document.getElementById(id);
+
+    window.addEventListener('error', (event) => {
+      const msg = event?.message || 'unknown JavaScript error';
+      addLog(`JS error: ${msg}`);
+      console.error(event.error || event.message || event);
     });
-  }
 
-  async function toggleHeater() {
-    if (!cachedState) return;
-    await postForm('/api/control', { heaterOn: cachedState.actuators.heaterOn ? 0 : 1 });
-    await refresh();
-  }
-
-  async function toggleOxygen() {
-    if (!cachedState) return;
-    await postForm('/api/control', { oxygenOn: cachedState.actuators.oxygenOn ? 0 : 1 });
-    await refresh();
-  }
-
-  async function setPumps() {
-    await postForm('/api/control', {
-      pumpDutyA: document.getElementById('pumpA').value,
-      pumpDutyB: document.getElementById('pumpB').value
-    });
-    await refresh();
-  }
-
-  async function saveParams() {
-    await postForm('/api/params', {
-      targetTempC: document.getElementById('targetTemp').value,
-      tempDeadbandC: document.getElementById('deadband').value,
-      minSafeLevelCm: document.getElementById('minLevel').value
-    });
-    await refresh();
-  }
-
-  function setText(id, value) {
-    document.getElementById(id).textContent = value;
-  }
-
-  function drawHistory(samples) {
-    const canvas = document.getElementById('chart');
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    if (!samples.length) return;
-
-    const valid = samples.map(s => s.temp).filter(v => !Number.isNaN(v));
-    if (!valid.length) return;
-
-    const min = Math.min(...valid);
-    const max = Math.max(...valid);
-    const range = (max - min) || 1;
-
-    ctx.strokeStyle = '#38bdf8';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-
-    samples.forEach((s, i) => {
-      const x = (i / Math.max(1, samples.length - 1)) * (canvas.width - 20) + 10;
-      const y = canvas.height - ((s.temp - min) / range) * (canvas.height - 20) - 10;
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    window.addEventListener('unhandledrejection', (event) => {
+      const msg = event?.reason?.message || event?.reason || 'unknown promise rejection';
+      addLog(`JS promise error: ${msg}`);
+      console.error(event.reason || event);
     });
 
-    ctx.stroke();
-  }
+    function ts() { return new Date().toLocaleTimeString(); }
 
-  async function refresh() {
-    const [stateRes, historyRes, logsRes] = await Promise.all([
-      fetch('/api/state'),
-      fetch('/api/history'),
-      fetch('/api/logs')
-    ]);
+    function addLog(line) {
+      const now = Date.now();
+      if (line === lastLogLine && (now - lastLogMs) < 2500) return;
+      lastLogLine = line;
+      lastLogMs = now;
 
-    const state = await stateRes.json();
-    const history = await historyRes.json();
-    const logs = await logsRes.json();
-    cachedState = state;
+      const log = $('log');
+      const div = document.createElement('div');
+      div.textContent = `[${ts()}] ${line}`;
+      log.prepend(div);
 
-    setText('temp', state.sensors.tempC.toFixed(2));
-    setText('level0', state.sensors.level0Cm.toFixed(2));
-    setText('level1', state.sensors.level1Cm.toFixed(2));
-    setText('ph', state.sensors.ph.toFixed(2));
-    setText('hue', state.sensors.hue.toFixed(1));
+      while (log.children.length > MAX_LOG_LINES) {
+        log.removeChild(log.lastChild);
+      }
+    }
 
-    document.getElementById('heaterBtn').textContent = state.actuators.heaterOn ? 'Turn OFF' : 'Turn ON';
-    document.getElementById('oxygenBtn').textContent = state.actuators.oxygenOn ? 'Turn OFF' : 'Turn ON';
+    function parseJson(s) {
+      try { return JSON.parse(s); } catch (_) { return null; }
+    }
 
-    document.getElementById('pumpA').value = state.actuators.pumpDutyA;
-    document.getElementById('pumpB').value = state.actuators.pumpDutyB;
+    function setConn(ok, text) {
+      $('connStatus').textContent = text;
+      $('connStatus').className = `status ${ok ? 'ok' : 'bad'}`;
+    }
 
-    document.getElementById('targetTemp').value = state.params.targetTempC;
-    document.getElementById('deadband').value = state.params.tempDeadbandC;
-    document.getElementById('minLevel').value = state.params.minSafeLevelCm;
+    function boolText(v) {
+      return v === true ? 'ON' : v === false ? 'OFF' : '--';
+    }
 
-    document.getElementById('logs').innerHTML = logs.map(l => `<div>${l}</div>`).join('');
+    function autoText(v) {
+      return v === true ? 'ENABLED' : v === false ? 'DISABLED' : '--';
+    }
 
-    drawHistory(history);
-  }
+    function numberText(v, digits = 2) {
+      return Number.isFinite(v) ? Number(v).toFixed(digits) : '--';
+    }
 
-  refresh();
-  setInterval(refresh, 1000);
-</script>
+    function setAlertPill(id, isActive) {
+      const el = $(id);
+      if (isActive === true) {
+        el.textContent = 'ACTIVE';
+        el.className = 'pill bad';
+      } else if (isActive === false) {
+        el.textContent = 'CLEAR';
+        el.className = 'pill ok';
+      } else {
+        el.textContent = '--';
+        el.className = 'pill';
+      }
+    }
+
+    function setEventPill(eventName) {
+      const el = $('currentEventBadge');
+      if (!eventName) {
+        el.textContent = '--';
+        el.className = 'pill';
+        return;
+      }
+
+      el.textContent = String(eventName);
+      if (eventName === 'online') el.className = 'pill ok';
+      else if (eventName === 'command_applied' || eventName === 'config_applied') el.className = 'pill warn';
+      else el.className = 'pill';
+    }
+
+    function buildTopics(deviceId) {
+      const base = `kombucha/${deviceId}`;
+      topics = {
+        telemetry: `${base}/telemetry`,
+        status: `${base}/status`,
+        alerts: `${base}/alerts`,
+        ack: `${base}/command/ack`,
+        command: `${base}/command/set`,
+        config: `${base}/config/set`,
+        configAck: `${base}/config/ack`,
+        wildcard: `${base}/#`
+      };
+      $('commandTopicPreview').textContent = topics.command;
+      $('configTopicPreview').textContent = topics.config;
+    }
+
+    function markDeviceSeen() {
+      lastDeviceMessageAt = Date.now();
+      updateLastSeenLabel();
+    }
+
+    function updateLastSeenLabel() {
+      const el = $('lastUpdateText');
+      if (!lastDeviceMessageAt) {
+        el.textContent = 'No data yet';
+        el.className = 'status stale';
+        return;
+      }
+      const age = Date.now() - lastDeviceMessageAt;
+      if (age > STALE_MS) {
+        el.textContent = `STALE (${Math.round(age / 1000)}s ago)`;
+        el.className = 'status warn';
+      } else {
+        el.textContent = `Fresh (${Math.round(age / 1000)}s ago)`;
+        el.className = 'status ok';
+      }
+    }
+
+    function updateColorBox(colorRaw) {
+      const swatch = $('colorSwatch');
+      if (!colorRaw) {
+        swatch.style.background = '#111827';
+        $('rgbText').textContent = '--';
+        return;
+      }
+      const clamp = (x) => Math.max(0, Math.min(255, Number(x || 0)));
+      const r = clamp(colorRaw.r);
+      const g = clamp(colorRaw.g);
+      const b = clamp(colorRaw.b);
+      swatch.style.background = `rgb(${r}, ${g}, ${b})`;
+      $('rgbText').textContent = `${r}, ${g}, ${b}`;
+    }
+
+    function updateColorBoxFromHsl(colorHsl) {
+      const swatch = $('colorSwatch');
+
+      if (!colorHsl || colorHsl.h === null || colorHsl.s === null || colorHsl.l === null) {
+        swatch.style.background = '#111827';
+        $('rgbText').textContent = '--';
+        return;
+      }
+
+      const h = Number(colorHsl.h);
+      const s = Number(colorHsl.s) * 100;
+      const l = Number(colorHsl.l) * 100;
+
+      if (!Number.isFinite(h) || !Number.isFinite(s) || !Number.isFinite(l)) {
+        swatch.style.background = '#111827';
+        $('rgbText').textContent = '--';
+        return;
+      }
+
+      swatch.style.background = `hsl(${h}, ${s}%, ${l}%)`;
+      $('rgbText').textContent = `HSL: ${h.toFixed(1)}, ${colorHsl.s}, ${colorHsl.l}`;
+    }
+
+    function updateStatePanel(obj) {
+      if (!obj) return;
+      $('feedPumpState').textContent = boolText(obj.feedPumpOn);
+      $('wastePumpState').textContent = boolText(obj.wastePumpOn);
+      $('oxygenState').textContent = boolText(obj.oxygenOn);
+      $('heaterState').textContent = boolText(obj.heaterOn);
+      $('autoLevelState').textContent = autoText(obj.autoLevelControl);
+      $('autoHeaterState').textContent = autoText(obj.autoHeaterControl);
+      if (obj.autoOxygenControl !== undefined) $('autoOxygenState').textContent = autoText(obj.autoOxygenControl);
+
+      if (obj.event !== undefined) {
+        $('deviceEvent').textContent = String(obj.event);
+      }
+
+      if (obj.feedEmptyAlert !== undefined) setAlertPill('feedAlert', obj.feedEmptyAlert);
+      if (obj.wasteOverflowAlert !== undefined) setAlertPill('wasteAlert', obj.wasteOverflowAlert);
+      if (obj.mainJarTooFullAlert !== undefined) setAlertPill('mainTooFullAlert', obj.mainJarTooFullAlert);
+      if (obj.tempSensorFault !== undefined) setAlertPill('tempFault', obj.tempSensorFault);
+      if (obj.phSensorFault !== undefined) setAlertPill('phFault', obj.phSensorFault);
+      if (obj.colorSensorFault !== undefined) setAlertPill('colorFault', obj.colorSensorFault);
+
+      if (obj.fluidSystemLockout !== undefined) setAlertPill('fluidLockout', obj.fluidSystemLockout);
+      if (obj.heaterLockout !== undefined) setAlertPill('heaterLockout', obj.heaterLockout);
+      if (obj.feedEmptyLatched !== undefined) setAlertPill('feedLatched', obj.feedEmptyLatched);
+      if (obj.wasteOverflowLatched !== undefined) setAlertPill('wasteLatched', obj.wasteOverflowLatched);
+      if (obj.mainJarTooFullLatched !== undefined) setAlertPill('mainTooFullLatched', obj.mainJarTooFullLatched);
+      if (obj.tempSensorFaultLatched !== undefined) setAlertPill('tempLatched', obj.tempSensorFaultLatched);
+    }
+
+    function updateTelemetry(obj) {
+      latestTelemetry = obj;
+      markDeviceSeen();
+
+      $('temp').textContent = numberText(obj.tempC, 2);
+      $('phValue').textContent = numberText(obj.ph, 2);
+      $('mainDistance').textContent = numberText(obj.mainDistanceCm, 2);
+      $('wasteDistance').textContent = numberText(obj.wasteDistanceCm, 2);
+      $('feedDistance').textContent = numberText(obj.feedDistanceCm, 2);
+
+      $('live_mainDistanceTargetCm').textContent = numberText(obj.mainDistanceTargetCm, 2);
+      $('live_mainDistanceBandCm').textContent = numberText(obj.mainDistanceBandCm, 2);
+      $('live_mainTooFullDistanceCm').textContent = numberText(obj.mainTooFullDistanceCm, 2);
+      $('live_feedEmptyDistanceCm').textContent = numberText(obj.feedEmptyDistanceCm, 2);
+      $('live_wasteOverflowDistanceCm').textContent = numberText(obj.wasteOverflowDistanceCm, 2);
+      $('live_tempLowC').textContent = numberText(obj.tempLowC, 2);
+      $('live_tempHighC').textContent = numberText(obj.tempHighC, 2);
+      $('live_oxygenRunSeconds').textContent = Number.isFinite(obj.oxygenRunSeconds) ? `${numberText(obj.oxygenRunSeconds, 1)} s` : '--';
+      $('live_oxygenWaitSeconds').textContent = Number.isFinite(obj.oxygenWaitSeconds) ? `${numberText(obj.oxygenWaitSeconds, 1)} s` : '--';
+      $('live_phCalVoltageA').textContent = numberText(obj.phCalVoltageA, 3);
+      $('live_phCalVoltageB').textContent = numberText(obj.phCalVoltageB, 3);
+
+      if (obj.colorHsl) {
+        const h = numberText(obj.colorHsl.h, 1);
+        const s = numberText(obj.colorHsl.s, 3);
+        const l = numberText(obj.colorHsl.l, 3);
+        $('hslText').textContent = `${h}, ${s}, ${l}`;
+      } else {
+        $('hslText').textContent = '--';
+      $('phValue').textContent = '--';
+      }
+
+      updateColorBoxFromHsl(obj.colorHsl);
+      updateStatePanel(obj);
+    }
+
+    function updateStatus(obj) {
+      latestStatus = obj;
+      markDeviceSeen();
+      updateStatePanel(obj);
+
+      $('wifiState').textContent = obj.wifiConnected === undefined ? '--' : boolText(obj.wifiConnected);
+      $('mqttState').textContent = obj.mqttConnected === undefined ? '--' : boolText(obj.mqttConnected);
+      setEventPill(obj.event);
+
+      if (obj.event === 'command_applied') {
+        $('lastCommandEvent').textContent = 'command_applied';
+      }
+      if (obj.event === 'config_applied') {
+        $('lastConfigEvent').textContent = 'config_applied';
+      }
+    }
+
+    function destroyCharts() {
+      if (levelsChart) { levelsChart.destroy(); levelsChart = null; }
+      if (tempChart) { tempChart.destroy(); tempChart = null; }
+      if (phChart) { phChart.destroy(); phChart = null; }
+      if (colorChart) { colorChart.destroy(); colorChart = null; }
+    }
+
+    function renderEmptyCharts() {
+      destroyCharts();
+      const commonOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: '#e2e8f0' } } },
+        scales: {
+          x: { ticks: { color: '#94a3b8' }, grid: { color: '#334155' } },
+          y: { ticks: { color: '#94a3b8' }, grid: { color: '#334155' } }
+        }
+      };
+      levelsChart = new Chart($('levelsChart'), { type: 'line', data: { labels: [], datasets: [] }, options: commonOptions });
+      tempChart = new Chart($('tempChart'), { type: 'line', data: { labels: [], datasets: [] }, options: commonOptions });
+      phChart = new Chart($('phChart'), { type: 'line', data: { labels: [], datasets: [] }, options: commonOptions });
+      colorChart = new Chart($('colorChart'), { type: 'line', data: { labels: [], datasets: [] }, options: commonOptions });
+      renderColorGradient([]);
+    }
+
+    function buildChartLabels(rows) {
+      return rows.map((row) => {
+        const d = new Date(row.ts);
+        return isNaN(d.getTime()) ? '--' : d.toLocaleTimeString();
+      });
+    }
+
+    function renderHistoryCharts(rows) {
+      destroyCharts();
+      const ordered = [...rows].reverse();
+      const labels = buildChartLabels(ordered);
+      const commonOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { labels: { color: '#e2e8f0' } } },
+        scales: {
+          x: { ticks: { color: '#94a3b8' }, grid: { color: '#334155' } },
+          y: { ticks: { color: '#94a3b8' }, grid: { color: '#334155' } }
+        }
+      };
+
+      levelsChart = new Chart($('levelsChart'), {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            { label: 'Main', data: ordered.map(r => r.us_main_cm), borderColor: '#60a5fa', spanGaps: true, tension: 0.25 },
+            { label: 'Waste', data: ordered.map(r => r.us_waste_cm), borderColor: '#f59e0b', spanGaps: true, tension: 0.25 },
+            { label: 'Feed', data: ordered.map(r => r.us_feed_cm), borderColor: '#22c55e', spanGaps: true, tension: 0.25 }
+          ]
+        },
+        options: commonOptions
+      });
+
+      tempChart = new Chart($('tempChart'), {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            { label: 'Temp (°C)', data: ordered.map(r => r.temp_c), borderColor: '#ef4444', spanGaps: true, tension: 0.25 }
+          ]
+        },
+        options: commonOptions
+      });
+
+      phChart = new Chart($('phChart'), {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            { label: 'pH', data: ordered.map(r => r.ph), borderColor: '#a855f7', spanGaps: true, tension: 0.25 }
+          ]
+        },
+        options: commonOptions
+      });
+
+      colorChart = new Chart($('colorChart'), {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            { label: 'R', data: ordered.map(r => r.r), borderColor: '#f87171', spanGaps: true, tension: 0.25 },
+            { label: 'G', data: ordered.map(r => r.g), borderColor: '#4ade80', spanGaps: true, tension: 0.25 },
+            { label: 'B', data: ordered.map(r => r.b), borderColor: '#60a5fa', spanGaps: true, tension: 0.25 }
+          ]
+        },
+        options: commonOptions
+      });
+
+      renderColorGradient(rows);
+    }
+
+    function renderColorGradient(rows) {
+      const gradient = $('colorGradient');
+      if (!gradient) return;
+      gradient.innerHTML = '';
+
+      if (!rows || rows.length === 0) {
+        const msg = document.createElement('div');
+        msg.textContent = 'No color history loaded';
+        msg.style.padding = '10px';
+        msg.style.color = 'var(--muted)';
+        gradient.appendChild(msg);
+        return;
+      }
+
+      const ordered = [...rows].reverse();
+      ordered.forEach((row) => {
+        const stripe = document.createElement('div');
+        stripe.className = 'colorStripe';
+
+        const h = Number(row.h);
+        const ss = Number(row.s);
+        const l = Number(row.l);
+
+        if (Number.isFinite(h) && Number.isFinite(ss) && Number.isFinite(l)) {
+          stripe.style.background = `hsl(${h}, ${ss * 100}%, ${l * 100}%)`;
+        } else if (row.r !== null && row.r !== undefined && row.g !== null && row.g !== undefined && row.b !== null && row.b !== undefined) {
+          const clamp = (x) => Math.max(0, Math.min(255, Math.round(Number(x || 0))));
+          stripe.style.background = `rgb(${clamp(row.r)}, ${clamp(row.g)}, ${clamp(row.b)})`;
+        } else {
+          stripe.style.background = '#111827';
+        }
+
+        stripe.title = `${fmtTs(row.ts)} | HSL: ${numberText(row.h, 1)}, ${numberText(row.s, 3)}, ${numberText(row.l, 3)} | RGB: ${row.r ?? '--'}, ${row.g ?? '--'}, ${row.b ?? '--'}`;
+        gradient.appendChild(stripe);
+      });
+    }
+
+    function setTableMessage(bodyId, message, colSpan) {
+      const body = $(bodyId);
+      body.innerHTML = '';
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = colSpan;
+      td.textContent = message;
+      td.style.padding = '8px';
+      td.style.color = 'var(--muted)';
+      tr.appendChild(td);
+      body.appendChild(tr);
+    }
+
+    function fmtTs(ts) {
+      if (!ts) return '--';
+      const d = new Date(ts);
+      return isNaN(d.getTime()) ? String(ts) : d.toLocaleString();
+    }
+
+    function createCell(text) {
+      const td = document.createElement('td');
+      td.textContent = text;
+      td.style.padding = '6px';
+      td.style.borderBottom = '1px solid var(--line)';
+      td.style.verticalAlign = 'top';
+      return td;
+    }
+
+    function renderLevelsHistory(rows) {
+      const body = $('levelsHistoryBody');
+      body.innerHTML = '';
+      if (!rows.length) {
+        setTableMessage('levelsHistoryBody', 'No level history found', 4);
+        return;
+      }
+      rows.forEach((row) => {
+        const tr = document.createElement('tr');
+        tr.appendChild(createCell(fmtTs(row.ts)));
+        tr.appendChild(createCell(numberText(row.us_main_cm, 2)));
+        tr.appendChild(createCell(numberText(row.us_waste_cm, 2)));
+        tr.appendChild(createCell(numberText(row.us_feed_cm, 2)));
+        body.appendChild(tr);
+      });
+    }
+
+    function renderTempHistory(rows) {
+      const body = $('tempHistoryBody');
+      body.innerHTML = '';
+      if (!rows.length) {
+        setTableMessage('tempHistoryBody', 'No temperature history found', 3);
+        return;
+      }
+      rows.forEach((row) => {
+        const tr = document.createElement('tr');
+        tr.appendChild(createCell(fmtTs(row.ts)));
+        tr.appendChild(createCell(numberText(row.temp_c, 2)));
+        tr.appendChild(createCell(boolText(row.heater_on)));
+        body.appendChild(tr);
+      });
+    }
+
+    function renderPhHistory(rows) {
+      const body = $('phHistoryBody');
+      body.innerHTML = '';
+      if (!rows.length) {
+        setTableMessage('phHistoryBody', 'No pH history found', 2);
+        return;
+      }
+      rows.forEach((row) => {
+        const tr = document.createElement('tr');
+        tr.appendChild(createCell(fmtTs(row.ts)));
+        tr.appendChild(createCell(numberText(row.ph, 2)));
+        body.appendChild(tr);
+      });
+    }
+
+    function renderColorHistory(rows) {
+      const body = $('colorHistoryBody');
+      body.innerHTML = '';
+      if (!rows.length) {
+        setTableMessage('colorHistoryBody', 'No color history found', 3);
+        return;
+      }
+      rows.forEach((row) => {
+        const tr = document.createElement('tr');
+        const rgb = `${row.r ?? '--'}, ${row.g ?? '--'}, ${row.b ?? '--'}`;
+        const hsl = `${numberText(row.h, 1)}, ${numberText(row.s, 3)}, ${numberText(row.l, 3)}`;
+        tr.appendChild(createCell(fmtTs(row.ts)));
+        tr.appendChild(createCell(rgb));
+        tr.appendChild(createCell(hsl));
+        body.appendChild(tr);
+      });
+    }
+
+    async function loadHistory() {
+      const url = $('supabaseUrl').value.trim();
+      const anonKey = $('supabaseAnonKey').value.trim();
+      const deviceId = $('deviceId').value.trim();
+
+      if (!url || !anonKey) {
+        addLog('Missing Supabase URL or anon key');
+        return;
+      }
+      if (!deviceId) {
+        addLog('Missing device ID for history query');
+        return;
+      }
+
+      try {
+        supabaseClient = window.supabase.createClient(url, anonKey);
+        const selectedBatchForLog = $('batchSelect') ? $('batchSelect').value.trim() : '';
+        addLog(`Loading history for ${deviceId}${selectedBatchForLog ? ' batch=' + selectedBatchForLog : ' all batches'}`);
+
+        let query = supabaseClient
+          .from('telemetry_raw')
+          .select('ts, batch_id, temp_c, ph, us_main_cm, us_feed_cm, us_waste_cm, r, g, b, h, s, l, heater_on')
+          .eq('device_id', deviceId);
+
+        const selectedBatch = $('batchSelect') ? $('batchSelect').value.trim() : '';
+        if (selectedBatch) {
+          query = query.eq('batch_id', selectedBatch);
+        }
+
+        query = query
+          .order('ts', { ascending: false })
+          .limit(HISTORY_LIMIT);
+
+        const { data, error } = await query;
+
+        if (error) {
+          addLog(`Supabase load failed: ${error.message}`);
+          setTableMessage('levelsHistoryBody', 'Load failed', 4);
+          setTableMessage('tempHistoryBody', 'Load failed', 3);
+          setTableMessage('phHistoryBody', 'Load failed', 2);
+          setTableMessage('colorHistoryBody', 'Load failed', 3);
+          return;
+        }
+
+        renderLevelsHistory(data || []);
+        renderTempHistory(data || []);
+        renderPhHistory(data || []);
+        renderColorHistory(data || []);
+        renderHistoryCharts(data || []);
+        addLog(`Loaded ${(data || []).length} history rows from Supabase`);
+      } catch (err) {
+        addLog(`Supabase setup failed: ${err.message || err}`);
+        setTableMessage('levelsHistoryBody', 'Load failed', 4);
+        setTableMessage('tempHistoryBody', 'Load failed', 3);
+        setTableMessage('phHistoryBody', 'Load failed', 2);
+        setTableMessage('colorHistoryBody', 'Load failed', 3);
+      }
+    }
+
+    function clearHistoryTables() {
+      setTableMessage('levelsHistoryBody', 'History cleared from page', 4);
+      setTableMessage('tempHistoryBody', 'History cleared from page', 3);
+      setTableMessage('phHistoryBody', 'History cleared from page', 2);
+      setTableMessage('colorHistoryBody', 'History cleared from page', 3);
+      renderEmptyCharts();
+      renderColorGradient([]);
+    }
+
+    function clearDisplay() {
+      latestTelemetry = null;
+      latestStatus = null;
+      lastDeviceMessageAt = 0;
+
+      $('temp').textContent = '--';
+      $('phValue').textContent = '--';
+      $('mainDistance').textContent = '--';
+      $('wasteDistance').textContent = '--';
+      $('feedDistance').textContent = '--';
+      $('hslText').textContent = '--';
+      $('deviceEvent').textContent = '--';
+      $('feedPumpState').textContent = '--';
+      $('wastePumpState').textContent = '--';
+      $('oxygenState').textContent = '--';
+      $('heaterState').textContent = '--';
+      $('autoLevelState').textContent = '--';
+      $('autoHeaterState').textContent = '--';
+      $('wifiState').textContent = '--';
+      $('mqttState').textContent = '--';
+      $('lastCommandEvent').textContent = '--';
+      $('lastConfigEvent').textContent = '--';
+      $('live_mainDistanceTargetCm').textContent = '--';
+      $('live_mainDistanceBandCm').textContent = '--';
+      $('live_mainTooFullDistanceCm').textContent = '--';
+      $('live_feedEmptyDistanceCm').textContent = '--';
+      $('live_wasteOverflowDistanceCm').textContent = '--';
+      $('live_tempLowC').textContent = '--';
+      $('live_tempHighC').textContent = '--';
+      $('live_oxygenRunSeconds').textContent = '--';
+      $('live_oxygenWaitSeconds').textContent = '--';
+      $('autoOxygenState').textContent = '--';
+      $('live_phCalVoltageA').textContent = '--';
+      $('live_phCalVoltageB').textContent = '--';
+      setEventPill(null);
+      setAlertPill('feedAlert', undefined);
+      setAlertPill('wasteAlert', undefined);
+      setAlertPill('mainTooFullAlert', undefined);
+      setAlertPill('tempFault', undefined);
+      setAlertPill('colorFault', undefined);
+      setAlertPill('phFault', undefined);
+      setAlertPill('fluidLockout', undefined);
+      setAlertPill('heaterLockout', undefined);
+      setAlertPill('feedLatched', undefined);
+      setAlertPill('wasteLatched', undefined);
+      setAlertPill('mainTooFullLatched', undefined);
+      setAlertPill('tempLatched', undefined);
+      updateColorBox(null);
+      updateLastSeenLabel();
+    }
+
+    function connectMqtt() {
+      if (client) {
+        client.end(true);
+        client = null;
+      }
+
+      const host = $('host').value.trim();
+      const port = Number($('port').value || 8084);
+      const username = $('username').value.trim();
+      const password = $('password').value.trim();
+      const deviceId = $('deviceId').value.trim();
+
+      if (!host || !deviceId) {
+        addLog('Missing host or device ID');
+        return;
+      }
+
+      buildTopics(deviceId);
+      $('previewHost').textContent = `${host}:${port}`;
+
+      const url = `wss://${host}:${port}/mqtt`;
+      const clientId = `web-${deviceId}-${Math.floor(Math.random() * 100000)}`;
+
+      addLog(`Connecting to ${url}`);
+      addLog(`Host='${host}' Port='${port}' User='${username}' Device='${deviceId}'`);
+      client = mqtt.connect(url, {
+        clientId,
+        username,
+        password,
+        keepalive: 60,
+        reconnectPeriod: 5000,
+        connectTimeout: 30000,
+        clean: true,
+        resubscribe: true,
+        protocolVersion: 4
+      });
+
+      client.on('connect', () => {
+        setConn(true, 'Connected');
+        addLog('Connected');
+        client.subscribe(topics.wildcard, { qos: 0 }, (err) => {
+          if (err) addLog(`Subscribe error: ${err.message}`);
+          else addLog(`Subscribed ${topics.wildcard}`);
+        });
+      });
+
+      client.on('reconnect', () => {
+        setConn(false, 'Reconnecting...');
+        addLog('Reconnecting...');
+      });
+
+      client.on('offline', () => {
+        setConn(false, 'Offline');
+        addLog('MQTT offline');
+      });
+
+      client.on('close', () => {
+        setConn(false, 'Disconnected');
+        addLog('Socket closed');
+      });
+
+      client.on('disconnect', (packet) => {
+        setConn(false, 'Disconnected');
+        addLog(`MQTT disconnect packet: ${JSON.stringify(packet || {})}`);
+      });
+
+      client.on('error', (err) => {
+        const msg = String(err?.message || err || 'unknown error');
+        setConn(false, 'Error');
+        addLog(`MQTT error: ${msg}`);
+        if (/bad username or password|not authorized|unauthorized/i.test(msg)) {
+          setConn(false, 'Auth Failed');
+          addLog('Stopped reconnect loop: fix username/password then press Connect again.');
+          client.end(true);
+          client = null;
+        }
+      });
+
+      client.on('message', (topic, payloadBuf) => {
+        const payload = payloadBuf.toString();
+        const obj = parseJson(payload);
+
+        if (topic === topics.telemetry && obj) {
+          try {
+            updateTelemetry(obj);
+            addLog(`TELEMETRY temp=${numberText(obj.tempC, 2)} pH=${numberText(obj.ph, 2)} main=${numberText(obj.mainDistanceCm, 2)} waste=${numberText(obj.wasteDistanceCm, 2)} feed=${numberText(obj.feedDistanceCm, 2)}`);
+          } catch (err) {
+            addLog(`Telemetry UI update error: ${err.message || err}`);
+            console.error(err);
+          }
+          return;
+        }
+
+        if (topic === topics.status && obj) {
+          try {
+            updateStatus(obj);
+            addLog(`STATUS event=${obj.event ?? '--'} heater=${boolText(obj.heaterOn)} oxygen=${boolText(obj.oxygenOn)}`);
+          } catch (err) {
+            addLog(`Status UI update error: ${err.message || err}`);
+            console.error(err);
+          }
+          return;
+        }
+
+        markDeviceSeen();
+        if (topic === topics.alerts) addLog(`ALERT ${payload}`);
+        else if (topic === topics.ack) addLog(`ACK ${payload}`);
+        else if (topic === topics.configAck) addLog(`CONFIG_ACK ${payload}`);
+        else addLog(`${topic} ${payload}`);
+      });
+    }
+
+    function disconnectMqtt() {
+      if (client) {
+        client.end(true);
+        client = null;
+      }
+      setConn(false, 'Disconnected');
+      clearDisplay();
+      addLog('Disconnected');
+    }
+
+    function publish(topic, obj, label) {
+      if (!client || !client.connected) {
+        addLog('Not connected');
+        return;
+      }
+      const payload = JSON.stringify(obj);
+      client.publish(topic, payload, { qos: 0, retain: false }, (err) => {
+        if (err) addLog(`${label} publish failed: ${err.message}`);
+        else addLog(`${label} -> ${payload}`);
+      });
+    }
+
+    function readNumberInput(id) {
+      const value = $(id).value.trim();
+
+      // Important: Number('') is 0 in JavaScript.
+      // For config inputs, an empty box should mean "do not send this field",
+      // so the ESP32 keeps its current value.
+      if (value === '') {
+        return null;
+      }
+
+      const n = Number(value);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    function makeBatchId() {
+      const manual = $('newBatchName') ? $('newBatchName').value.trim() : '';
+      if (manual) return manual;
+
+      const stamp = new Date().toISOString()
+        .replace(/[:.]/g, '-')
+        .replace('T', '_')
+        .replace('Z', '');
+
+      return `batch-${stamp}`;
+    }
+
+    function batchTopic() {
+      const deviceId = $('deviceId').value.trim();
+      return `kombucha/${deviceId}/batch/set`;
+    }
+
+    function startNewBatch() {
+      const batchId = makeBatchId();
+      const notes = $('newBatchNotes') ? $('newBatchNotes').value.trim() : '';
+
+      publish(batchTopic(), {
+        action: 'start_batch',
+        batchId,
+        name: batchId,
+        notes
+      }, 'BATCH');
+
+      if ($('batchSelect')) {
+        let existing = Array.from($('batchSelect').options).find(opt => opt.value === batchId);
+        if (!existing) {
+          existing = document.createElement('option');
+          existing.value = batchId;
+          existing.textContent = `ACTIVE - ${batchId}`;
+          $('batchSelect').prepend(existing);
+        }
+        $('batchSelect').value = batchId;
+      }
+
+      if ($('selectedBatchText')) $('selectedBatchText').textContent = batchId;
+      addLog(`Requested start new batch: ${batchId}`);
+    }
+
+    function endCurrentBatch() {
+      publish(batchTopic(), { action: 'end_batch' }, 'BATCH');
+      addLog('Requested end current batch');
+    }
+
+    async function loadBatchList() {
+      const url = $('supabaseUrl').value.trim();
+      const anonKey = $('supabaseAnonKey').value.trim();
+      const deviceId = $('deviceId').value.trim();
+
+      if (!url || !anonKey) {
+        addLog('Missing Supabase URL or anon key');
+        return;
+      }
+
+      if (!deviceId) {
+        addLog('Missing device ID for batch list');
+        return;
+      }
+
+      try {
+        supabaseClient = window.supabase.createClient(url, anonKey);
+
+        const { data, error } = await supabaseClient
+          .from('batches')
+          .select('batch_id, name, started_at, ended_at, is_active')
+          .eq('device_id', deviceId)
+          .order('started_at', { ascending: false });
+
+        if (error) {
+          addLog(`Batch list load failed: ${error.message}`);
+          return;
+        }
+
+        const select = $('batchSelect');
+        select.innerHTML = '<option value="">All batches</option>';
+
+        (data || []).forEach(batch => {
+          const opt = document.createElement('option');
+          opt.value = batch.batch_id;
+          const label = batch.name || batch.batch_id;
+          opt.textContent = `${batch.is_active ? 'ACTIVE - ' : ''}${label}`;
+          select.appendChild(opt);
+        });
+
+        addLog(`Loaded ${(data || []).length} batches`);
+      } catch (err) {
+        addLog(`Batch list failed: ${err.message || err}`);
+      }
+    }
+
+    function useSelectedBatchForHistory() {
+      const batchId = $('batchSelect').value.trim();
+      if ($('selectedBatchText')) $('selectedBatchText').textContent = batchId || 'All batches';
+      addLog(batchId ? `History filter set to batch: ${batchId}` : 'History filter set to all batches');
+    }
+
+    function publishConfig() {
+      const cfg = {
+        mainDistanceTargetCm: readNumberInput('mainDistanceTargetCm'),
+        mainDistanceBandCm: readNumberInput('mainDistanceBandCm'),
+        mainTooFullDistanceCm: readNumberInput('mainTooFullDistanceCm'),
+        feedEmptyDistanceCm: readNumberInput('feedEmptyDistanceCm'),
+        wasteOverflowDistanceCm: readNumberInput('wasteOverflowDistanceCm'),
+        tempLowC: readNumberInput('tempLowC'),
+        tempHighC: readNumberInput('tempHighC'),
+        oxygenRunSeconds: readNumberInput('oxygenRunSeconds'),
+        oxygenWaitSeconds: readNumberInput('oxygenWaitSeconds'),
+        phCalVoltageA: readNumberInput('phCalVoltageA'),
+        phCalVoltageB: readNumberInput('phCalVoltageB')
+      };
+
+      Object.keys(cfg).forEach((k) => {
+        if (cfg[k] === null) delete cfg[k];
+      });
+
+      if (Number.isFinite(cfg.tempLowC) && Number.isFinite(cfg.tempHighC) && cfg.tempHighC <= cfg.tempLowC) {
+        addLog('Config blocked: Temp High must be greater than Temp Low');
+        return;
+      }
+
+      if (Number.isFinite(cfg.mainDistanceBandCm) && cfg.mainDistanceBandCm <= 0) {
+        addLog('Config blocked: Main Distance Band must be positive');
+        return;
+      }
+
+      if (Number.isFinite(cfg.mainTooFullDistanceCm) && cfg.mainTooFullDistanceCm < 0.5) {
+        addLog('Config blocked: Main Too Full Distance must be at least 0.5 cm');
+        return;
+      }
+
+      if (Number.isFinite(cfg.oxygenRunSeconds) && cfg.oxygenRunSeconds < 1) {
+        addLog('Config blocked: Oxygen Run Time must be at least 1 second');
+        return;
+      }
+
+      if (Number.isFinite(cfg.oxygenWaitSeconds) && cfg.oxygenWaitSeconds < 1) {
+        addLog('Config blocked: Oxygen Wait Interval must be at least 1 second');
+        return;
+      }
+
+      publish(topics.config, cfg, 'CFG');
+    }
+
+    function loadConfigFromTelemetry() {
+      if (!latestTelemetry) {
+        addLog('No live telemetry yet');
+        return;
+      }
+      const t = latestTelemetry;
+      if (Number.isFinite(t.mainDistanceTargetCm)) $('mainDistanceTargetCm').value = t.mainDistanceTargetCm;
+      if (Number.isFinite(t.mainDistanceBandCm)) $('mainDistanceBandCm').value = t.mainDistanceBandCm;
+      if (Number.isFinite(t.mainTooFullDistanceCm)) $('mainTooFullDistanceCm').value = t.mainTooFullDistanceCm;
+      if (Number.isFinite(t.feedEmptyDistanceCm)) $('feedEmptyDistanceCm').value = t.feedEmptyDistanceCm;
+      if (Number.isFinite(t.wasteOverflowDistanceCm)) $('wasteOverflowDistanceCm').value = t.wasteOverflowDistanceCm;
+      if (Number.isFinite(t.tempLowC)) $('tempLowC').value = t.tempLowC;
+      if (Number.isFinite(t.tempHighC)) $('tempHighC').value = t.tempHighC;
+      if (Number.isFinite(t.oxygenRunSeconds)) $('oxygenRunSeconds').value = t.oxygenRunSeconds;
+      if (Number.isFinite(t.oxygenWaitSeconds)) $('oxygenWaitSeconds').value = t.oxygenWaitSeconds;
+      if (Number.isFinite(t.phCalVoltageA)) $('phCalVoltageA').value = t.phCalVoltageA;
+      if (Number.isFinite(t.phCalVoltageB)) $('phCalVoltageB').value = t.phCalVoltageB;
+      addLog('Loaded parameters from latest telemetry');
+    }
+
+
+    function getLatestState() {
+      return latestTelemetry || latestStatus || {};
+    }
+
+    function actuatorBlockedMessage(cmd) {
+      const s = getLatestState();
+
+      // OFF commands and emergency all-off should always be allowed.
+      if (cmd.allOff === true) return null;
+      if (cmd.feedPumpOn === false || cmd.wastePumpOn === false || cmd.heaterOn === false || cmd.oxygenOn === false) return null;
+
+      if (cmd.feedPumpOn === true) {
+        if (s.feedEmptyLatched === true) {
+          return 'Feed pump blocked: feed empty alert is latched. Refill the feed jar, then press Alert Resolved: Feed Refilled first.';
+        }
+        if (s.fluidSystemLockout === true) {
+          return 'Feed pump blocked: fluid system lockout is active. Resolve the fluid alert first.';
+        }
+        if (s.wasteOverflowLatched === true) {
+          return 'Feed pump blocked: waste overflow alert is latched. Empty the waste jar and clear the alert first.';
+        }
+        if (s.mainJarTooFullLatched === true) {
+          return 'Feed pump blocked: main jar too-full alert is latched. Make the main jar safe and clear the alert first.';
+        }
+      }
+
+      if (cmd.wastePumpOn === true) {
+        if (s.fluidSystemLockout === true) {
+          return 'Waste pump blocked: fluid system lockout is active. Resolve the fluid alert first.';
+        }
+        if (s.wasteOverflowLatched === true) {
+          return 'Waste pump blocked: waste overflow alert is latched. Empty the waste jar and clear the alert first.';
+        }
+        if (s.mainJarTooFullLatched === true) {
+          return 'Waste pump blocked: main jar too-full alert is latched. Make the main jar safe and clear the alert first.';
+        }
+      }
+
+      if (cmd.heaterOn === true) {
+        if (s.heaterLockout === true || s.tempSensorFaultLatched === true) {
+          return 'Heater blocked: temperature sensor fault is latched. Fix the temperature sensor and press Alert Resolved: Temp Sensor OK first.';
+        }
+      }
+
+      if (cmd.autoLevelControl === true) {
+        if (s.fluidSystemLockout === true || s.feedEmptyLatched === true || s.wasteOverflowLatched === true || s.mainJarTooFullLatched === true) {
+          return 'Auto level control blocked: a fluid latch or lockout is active. Resolve the alert first.';
+        }
+      }
+
+      if (cmd.autoHeaterControl === true) {
+        if (s.heaterLockout === true || s.tempSensorFaultLatched === true) {
+          return 'Auto heater control blocked: heater lockout is active. Resolve the temperature alert first.';
+        }
+      }
+
+      return null;
+    }
+
+    $('connectBtn').addEventListener('click', connectMqtt);
+    $('loadHistoryBtn').addEventListener('click', loadHistory);
+    $('clearHistoryBtn').addEventListener('click', clearHistoryTables);
+    $('disconnectBtn').addEventListener('click', disconnectMqtt);
+    $('sendConfigBtn').addEventListener('click', publishConfig);
+    $('pullFromTelemetryBtn').addEventListener('click', loadConfigFromTelemetry);
+    if ($('startNewBatchBtn')) $('startNewBatchBtn').addEventListener('click', startNewBatch);
+    if ($('refreshBatchesBtn')) $('refreshBatchesBtn').addEventListener('click', loadBatchList);
+    if ($('setSelectedBatchBtn')) $('setSelectedBatchBtn').addEventListener('click', useSelectedBatchForHistory);
+    if ($('endBatchBtn')) $('endBatchBtn').addEventListener('click', endCurrentBatch);
+
+    $('enableOxygenTimerBtn').addEventListener('click', () => {
+      publish(topics.command, { autoOxygenControl: true }, 'CMD');
+    });
+
+    $('disableOxygenTimerBtn').addEventListener('click', () => {
+      publish(topics.command, { autoOxygenControl: false, oxygenOn: false }, 'CMD');
+    });
+
+    document.querySelectorAll('button[data-cmd]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const patch = parseJson(btn.dataset.cmd);
+        if (!patch) return;
+
+        const blocked = actuatorBlockedMessage(patch);
+        if (blocked) {
+          addLog(`BLOCKED: ${blocked}`);
+          window.alert(blocked);
+          return;
+        }
+
+        publish(topics.command, patch, 'CMD');
+      });
+    });
+
+    buildTopics($('deviceId').value.trim());
+    clearDisplay();
+    clearHistoryTables();
+
+    document.querySelectorAll('.tab-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
+        document.querySelectorAll('.tab-page').forEach((page) => page.classList.remove('active'));
+        btn.classList.add('active');
+        $(btn.dataset.tab).classList.add('active');
+      });
+    });
+
+    setInterval(updateLastSeenLabel, 1000);
+  </script>
 </body>
 </html>
