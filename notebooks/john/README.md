@@ -4,9 +4,13 @@
 # 2021-02-13 - Discussion with Workshop
 Reviewed the previous kombucha fermentation prototype and drafted a new layout to improve tube organization inside the jar. Considering mounting the ultrasonic sensor by cutting holes in the lid rather than 3D-printing a sensor housing. Plan to reuse the acrylic stand, but with fewer pump holes.
 
+---
+
 ![](Prototype.png)
 # 2021-02-20 - US Sensor testing
 Wrote code for a GPIO-efficient ultrasonic sensor interface for 3 different US sensors: one for the main jar, one for new tea, and one for the waste/completed fermented tea. To save IO pins (and board space) for other components like the temperature sensor, motor driver, and relay, all three sensors share the same trigger pin while using separate echo pins. The sensors are read sequentially (not simultaneously), which is acceptable for this application since level measurements do not need high-speed updates. Reading them one at a time also helps reduce ultrasonic crosstalk/interference between sensors.
+
+---
 
 # 2021-02-24 - Temperature Sensor testing
 Wrote code to interface the DS18B20 temperature sensor for reading system temperature values (in both °C and °F) for the fermentation control system. Set up the sensor using the OneWire and DallasTemperature libraries, where OneWire handles communication on the data line and DallasTemperature provides higher-level functions for requesting and reading temperature values. Created a reusable .h / .cpp class wrapper so the main code can easily initialize the sensor, request/read temperatures, and return values for control comparisons (e.g., heater on/off thresholds). Also added a validity check to reject disconnected/invalid readings (e.g., -127°C) so bad sensor data does not affect control decisions. Observed that temperature changes gradually (as expected) and that readings are more stable/representative when the sensor is fully submerged.
@@ -19,7 +23,6 @@ Discussed how to safely control the original wall-powered peripherals. One possi
 
 After looking more closely at safety and wiring complexity, this approach seemed risky for a wet fermentation setup. The idea was useful, but it added more AC wiring near liquids than we wanted.
 
-**Image to add:** sketch of relay outlet box idea  
 ![](Split_Smart_Outlet.jpeg)
 
 ---
@@ -30,19 +33,27 @@ Updated the actuation plan to avoid using multiple wall-powered AC peripherals. 
 
 This change also improved safety because the project enclosure no longer needs to switch AC power internally. Keeping the system mostly low-voltage DC is better for a wet fermentation environment.
 
-**Image to add:** power subsystem schematic or 12 V rail layout  
-`![](Power_Subsystem_Update.png)`
-
 ---
 
 ## 2026-03-10 - pH Sensor Calibration Setup
 
 Integrated the analog pH sensing board with the ESP32 ADC input. Set up firmware to read the pH output voltage and convert it into a pH value using a two-point calibration method. Added calibration constants so the slope and offset can be adjusted without rewriting the full sensor pipeline.
 
-Also checked the pH signal conditioning because the ESP32 ADC input must stay within the 0–3.3 V range. The pH sensor worked for detecting larger acidity trends, but calibration drift became a concern during longer testing.
+\[
+pH = mV_{pH} + b
+\]
 
-**Image to add:** pH probe in buffer solution or calibration serial output  
-`![](pH_Calibration.png)`
+where \(V_{pH}\) is the measured analog voltage from the pH board, \(m\) is the calibration slope, and \(b\) is the calibration offset. Using two known buffer solutions, the slope and offset are calculated as:
+
+\[
+m = \frac{pH_2 - pH_1}{V_2 - V_1}
+\]
+
+\[
+b = pH_1 - mV_1
+\]
+
+Also checked the pH signal conditioning because the ESP32 ADC input must stay within the 0–3.3 V range. The pH sensor worked for detecting larger acidity trends, but calibration drift became a concern during longer testing.
 
 ---
 
