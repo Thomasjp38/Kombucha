@@ -39,19 +39,19 @@ This change also improved safety because the project enclosure no longer needs t
 
 Integrated the analog pH sensing board with the ESP32 ADC input. Set up firmware to read the pH output voltage and convert it into a pH value using a two-point calibration method. Added calibration constants so the slope and offset can be adjusted without rewriting the full sensor pipeline.
 
-\[
-pH = mV_{pH} + b
-\]
+The pH conversion was modeled as a linear two-point calibration:
 
-where \(V_{pH}\) is the measured analog voltage from the pH board, \(m\) is the calibration slope, and \(b\) is the calibration offset. Using two known buffer solutions, the slope and offset are calculated as:
+**pH = mV<sub>pH</sub> + b**
 
-\[
-m = \frac{pH_2 - pH_1}{V_2 - V_1}
-\]
+where **V<sub>pH</sub>** is the measured analog voltage from the pH board, **m** is the calibration slope, and **b** is the calibration offset.
 
-\[
-b = pH_1 - mV_1
-\]
+Using two known buffer solutions, the slope and offset are calculated as:
+
+**m = (pH<sub>2</sub> - pH<sub>1</sub>) / (V<sub>2</sub> - V<sub>1</sub>)**
+
+**b = pH<sub>1</sub> - mV<sub>1</sub>**
+
+After calibration, each measured pH-board voltage can be converted into an estimated pH value using the linear equation above.
 
 Also checked the pH signal conditioning because the ESP32 ADC input must stay within the 0–3.3 V range. The pH sensor worked for detecting larger acidity trends, but calibration drift became a concern during longer testing.
 
