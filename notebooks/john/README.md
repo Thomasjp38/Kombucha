@@ -20,7 +20,7 @@ Discussed how to safely control the original wall-powered peripherals. One possi
 After looking more closely at safety and wiring complexity, this approach seemed risky for a wet fermentation setup. The idea was useful, but it added more AC wiring near liquids than we wanted.
 
 **Image to add:** sketch of relay outlet box idea  
-`![](AC_Relay_Box_Plan.png)`
+![](Split_Smart_Outlet.jpeg)
 
 ---
 
