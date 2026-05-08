@@ -63,8 +63,7 @@ Integrated the TCS34725 RGB color sensor over I²C. Wrote firmware to collect ra
 
 Tested the sensor with different liquid samples. Darker or more opaque samples gave clearer color separation, while translucent broth was harder to classify consistently. This showed that the RGB sensor could detect broad visual changes, but calibration and sensor placement would be important.
 
-**Image to add:** RGB sensor under jar or color timeline/gradient graph  
-`![](RGB_HSL_Test.png)`
+![](gradient.png)
 
 ---
 
