@@ -73,8 +73,7 @@ Updated the ultrasonic firmware to improve level measurement stability. Instead 
 
 This filtering step made the level readings more stable before they were passed into the control logic and dashboard.
 
-**Image to add:** ultrasonic graph showing smoother distance readings  
-`![](Ultrasonic_Median_Filter.png)`
+![](jar_levels.png)
 
 ---
 
@@ -95,8 +94,6 @@ Tested the idea of hosting the dashboard directly on the ESP32. This worked loca
 
 Started looking for a replacement approach using an MQTT broker and external dashboard so the ESP32 only needs to publish data instead of hosting the whole interface.
 
-**Image to add:** screenshot of local ESP32 webpage attempt or connection issue  
-`![](ESP32_Local_Webpage_Issue.png)`
 
 ---
 
@@ -116,9 +113,6 @@ Organized MQTT topics for telemetry, status, alerts, command acknowledgments, an
 Worked on the Python ingest script that subscribes to the EMQX MQTT broker and processes incoming ESP32 messages. The script parses telemetry, status, alert, and command acknowledgment payloads. It then stores sensor and event data in the SQL database so the dashboard can show both live readings and historical trends.
 
 This was important because fermentation happens over multiple days, so the system needs stored data rather than only live values.
-
-**Image to add:** ingest script running in terminal or SQL/Supabase telemetry table  
-`![](Python_Ingest_SQL.png)`
 
 ---
 
