@@ -1,6 +1,6 @@
 # ECE Senior Design Lab Notebook
 ## Fermentation Monitoring System
-**Controller:** ESP32 | **Course:** ECE Senior Design | **Team Members:** [Your Names]
+**Controller:** ESP32 | **Course:** ECE Senior Design | Rudy
 
 ---
 
