@@ -83,9 +83,6 @@ Updated the physical layout to better separate wet fermentation components from 
 
 The acrylic stand was reused to support pumps and organize the physical setup. Sensor placement was also adjusted: the pH and temperature probes directly contact the liquid, the RGB sensor sits below the jar, and ultrasonic sensors sit above each container.
 
-**Image to add:** updated mechanical layout with jar, pumps, tubing, and electronics container  
-`![](Mechanical_Layout_Update.png)`
-
 ---
 
 ## 2026-03-29 - Local ESP32 Webpage Issue
@@ -103,9 +100,6 @@ Started moving the system from a local ESP32-hosted webpage to an MQTT-based tel
 
 Organized MQTT topics for telemetry, status, alerts, command acknowledgments, and dashboard commands. This made the system more flexible because the ESP32 could focus on sensing/control while the dashboard and data storage were handled externally.
 
-**Image to add:** MQTT topic diagram or EMQX dashboard screenshot  
-`![](MQTT_Pipeline.png)`
-
 ---
 
 ## 2026-04-08 - Python Ingest Script and Database Logging
@@ -122,9 +116,6 @@ Added Discord alert forwarding through the Python ingest pipeline. Important ale
 
 This helps make the system more useful when the user is not actively watching the dashboard.
 
-**Image to add:** Discord alert screenshot  
-`![](Discord_Alerts.png)`
-
 ---
 
 ## 2026-04-13 - Dashboard Updates
@@ -133,9 +124,6 @@ Updated the dashboard to show live sensor values, actuator states, system config
 
 Also started adding batch-tracking features so a new fermentation run can be separated from previous data. This still needs more testing because database batch assignment can become inconsistent if the frontend and ingest script are not synchronized.
 
-**Image to add:** dashboard live page and history graph page  
-`![](Dashboard_Live_View.png)`  
-`![](Dashboard_History_Graphs.png)`
 
 ---
 
@@ -145,8 +133,3 @@ Began full-system integration testing with sensors, actuators, MQTT telemetry, d
 
 Collected verification data for ultrasonic levels, temperature response, pH trends, and RGB/HSL color changes. Also documented remaining limitations, including pH calibration drift, RGB sensitivity to lighting and liquid opacity, heating pad contact issues, mechanical cleaning challenges, and occasional batch-organization issues in the database.
 
-**Image to add:** final verification graphs  
-`![](Verification_Graphs.png)`
-
-**Image to add:** final prototype photo  
-`![](Final_Prototype.png)`
